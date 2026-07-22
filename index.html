@@ -473,120 +473,168 @@
       }
     }
 
-    // --- Parser Especializado em Orçamentos e Cupons de Distribuidora ---
-    function parseOrcamentoTexto(text) {
-      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-      const resultados = [];
+    // ============================================================
+    //  PARSER OCR - 3 TIPOS DE DOCUMENTOS
+    //  1. Orçamento em Tabela (código | qtd | produto | und | vl.unit | vl.total)
+    //  2. Cupom Térmico de Distribuidora (2 linhas: descrição + qtd x preço)
+    //  3. Notas de Construção / Lojas (ignora cabeçalho e rodapé)
+    // ============================================================
 
-      // Ignora cabeçalhos e rodapés comuns de distribuidoras e cupons térmicos
-      const ignorar = [
-        "BUZIM DISTRIBUIDORA", "VENDA SIMPLES", "NAO E DOCUMENTO FISCAL", "NÃO É DOCUMENTO FISCAL",
-        "CLIENTE", "PEDIDO", "SUBTOTAL", "TOTAL", "DINHEIRO", "TROCO", "CARTAO", "CARTÃO", "PIX",
-        "RECEBIDO", "VALOR PAGO", "VALOR TOTAL", "DADOS PARA ENTREGA", "TRIBUTOS", "FORMA DE PAGAMENTO",
-        "DESCONTO", "CNPJ", "CPF", "ENDERECO", "ENDEREÇO", "TELEFONE", "DATA", "HORA", "EMISSAO", 
-        "EMISSÃO", "INSCRICAO", "INSCRIÇÃO", "CHAVE", "OBRIGADO", "VOLTE SEMPRE", "NOTA FISCAL", 
-        "CUPOM", "BAIRRO", "CIDADE", "IE", "ITEM", "DESCRICAO", "QTD", "VL.UNIT", "VLR.UNIT", "PRECO",
-        "CODIGO", "CÓDIGO", "VL.TOTAL", "VLR.TOTAL"
-      ];
+    // Palavras-chave para ignorar linhas de cabeçalho / rodapé
+    const LINHAS_IGNORAR = [
+      "BUZIM DISTRIBUIDORA", "VENDA SIMPLES", "NAO E DOCUMENTO FISCAL", "NÃO É DOCUMENTO FISCAL",
+      "ORÇAMENTO", "ORCAMENTO", "PEDIDO", "PROPOSTA",
+      "CLIENTE", "VENDEDOR", "EMITIDO", "EMISSAO", "EMISSÃO",
+      "SUBTOTAL", "TOTAL GERAL", "VALOR TOTAL", "VALOR PAGO", "TROCO",
+      "DINHEIRO", "CARTAO", "CARTÃO", "PIX", "RECEBIDO",
+      "FORMA DE PAGAMENTO", "DADOS PARA ENTREGA",
+      "DESCONTO", "ACRESCIMO", "ACRÉSCIMO",
+      "CNPJ", "CPF", "INSCRICAO", "INSCRIÇÃO", "IE ", "TELEFONE", "FAX",
+      "ENDERECO", "ENDEREÇO", "BAIRRO", "CIDADE", "CEP", "UF ",
+      "DATA ", "HORA ", "CHAVE NF", "CHAVE DE ACESSO",
+      "TRIBUTOS", "VALOR APROX", "COFINS", "ICMS", "PIS",
+      "OBRIGADO", "VOLTE SEMPRE", "BOA COMPRA",
+      "NOTA FISCAL", "NFE", "NF-E", "CUPOM FISCAL",
+      "ITEM DESCRICAO", "ITEM DESCRIÇÃO", "QTD UN VL",
+      "VL.UNIT", "VLR.UNIT", "VL.TOTAL", "VLR.TOTAL",
+      "CODIGO", "CÓDIGO", "PRECO UNIT", "PREÇO UNIT",
+      "COMPR.", "COMPROVANTE", "CARIMBO", "ASSINATURA", "FATURA"
+    ];
 
-      // Regex para fórmula de quantidade e preço em duas linhas (ex: "8.000 UN x 2.75")
-      const regexFormulaQtdPreco = /(?:^|\s)([\d\.,]+)\s*(?:UN|KG|CX|PCT|G|L|CAIXA|UNID|X)?\s*[xX*]\s*(?:R\$\s*)?([\d\.,]+)/i;
+    // Unidades de embalagem (caixa/fardo) que implicam em subdivisão de custo
+    const UNIDADES_EMBALAGEM = new Set(["CX", "FD", "BL", "PC", "PT", "PCT", "CAIXA", "FARDO", "PACOTE", "BLOCO"]);
+    // Unidades de venda direta (sem subdivisão)
+    const UNIDADES_VENDA_DIRETA = new Set(["UN", "UD", "UNID", "KG", "GR", "M2", "M", "L", "LT", "LITRO", "ML"]);
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const lineUpper = line.toUpperCase();
-
-        if (ignorar.some(term => lineUpper.includes(term) && !lineUpper.match(/\d+[\.,]\d{2}/))) {
-          continue;
-        }
-
-        // 1. TENTATIVA COM ESTRUTURA RÍGIDA DE LINHA: [CÓDIGO] [QUANTIDADE] [DESCRIÇÃO] [UND] [VL_UNIT] [VL_TOTAL]
-        const itemRigido = parseLinhaOrcamento(line);
-        if (itemRigido) {
-          resultados.push(itemRigido);
-          continue;
-        }
-
-        // 2. TENTATIVA COM ESTRUTURA EM DUAS LINHAS (Linha i = Código + Descrição, Linha i+1 = QTD x PREÇO_UNIT)
-        if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1];
-          const matchNext = nextLine.match(regexFormulaQtdPreco);
-          if (matchNext) {
-            const qtdRaw = matchNext[1];
-            const precoRaw = matchNext[2];
-
-            const qtdComprada = parseNumeroQtd(qtdRaw);
-            const precoBase = parseNumeroPtEn(precoRaw);
-
-            if (qtdComprada > 0 && precoBase > 0) {
-              const nomeLimpo = limparNomeProduto(line);
-              if (nomeLimpo.length >= 2) {
-                const multiplicador = extrairMultiplicador(line);
-                const quantidadeTotalVenda = qtdComprada * multiplicador;
-                const precoCustoUnitario = (multiplicador > 1 && precoBase > 10) ? (precoBase / multiplicador) : precoBase;
-
-                resultados.push({
-                  nome: nomeLimpo,
-                  preco: precoCustoUnitario,
-                  quantidade: quantidadeTotalVenda
-                });
-                i++; // Avança a linha pois foi consumida
-                continue;
-              }
-            }
-          }
-        }
-      }
-
-      return resultados;
+    function deveIgnorarLinha(lineUpper) {
+      // Ignora linhas puramente numéricas / de separação
+      if (/^[\-=_*#|\s]+$/.test(lineUpper)) return true;
+      // Ignora linhas que são somente CNPJ / telefone / data
+      if (/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(lineUpper)) return true; // CNPJ
+      if (/^\(\d{2}\)\s*\d{4,5}/.test(lineUpper)) return true;               // telefone
+      if (/^\d{2}\/\d{2}\/\d{4}/.test(lineUpper)) return true;               // data
+      // Ignora linhas que batem com palavras-chave de cabeçalho/rodapé
+      return LINHAS_IGNORAR.some(term => lineUpper.includes(term));
     }
 
-    function parseLinhaOrcamento(line) {
-      // Procura todos os valores monetários da linha (ex: 66,00 198,00 ou 66,00)
-      const priceMatches = [...line.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
+    // ---- Extrai o multiplicador de unidades dentro da embalagem ----
+    // Ex: "C/12 UD" → 12, "C/15" → 15, "10X120G" → 10, "24X30G" → 24
+    function extrairMultiplicador(str) {
+      if (!str) return 1;
+      const s = str.toUpperCase();
+      // Padrão C/N (C/12 UD, C/ 15 UN, C/18)
+      const matchC = s.match(/\bC\s*\/\s*(\d+)(?:\s*(?:UD|UN|UNID|CX|PCT))?\b/);
+      if (matchC) {
+        const n = parseInt(matchC[1], 10);
+        if (n > 1) return n;
+      }
+      // Padrão NxM (10X120G, 24X30G, 12X350ML) — captura N como qtd por embalagem
+      const matchX = s.match(/\b(\d+)\s*[X]\s*(\d+)\s*(?:G|GR|KG|ML|L|LT)?\b/);
+      if (matchX) {
+        const n = parseInt(matchX[1], 10);
+        if (n > 1) return n;
+      }
+      return 1;
+    }
+
+    // ---- Parseia um número em formato PT (1.234,56) ou EN (1,234.56) ou simples ----
+    function parseNumeroPtEn(str) {
+      if (!str) return 0;
+      str = str.trim().replace(/\s/g, "");
+      // Formato PT: 1.234,56
+      if (/^\d{1,3}(\.\d{3})+,\d+$/.test(str))
+        return parseFloat(str.replace(/\./g, "").replace(",", "."));
+      // Formato EN: 1,234.56
+      if (/^\d{1,3}(,\d{3})+\.\d+$/.test(str))
+        return parseFloat(str.replace(/,/g, ""));
+      // Simples com vírgula: 66,00 / 5,50
+      if (str.includes(","))
+        return parseFloat(str.replace(/\./g, "").replace(",", "."));
+      return parseFloat(str) || 0;
+    }
+
+    // ---- Parseia quantidade (suporta "8.000" como 8 e "1,000" como 1) ----
+    function parseNumeroQtd(str) {
+      if (!str) return 0;
+      str = str.trim();
+      // "8.000" (milhar com ponto) → trata como inteiro 8
+      const mMilhar = str.match(/^(\d+)\.0{3}$/);
+      if (mMilhar) return parseInt(mMilhar[1], 10);
+      // Número simples
+      return parseNumeroPtEn(str) || 0;
+    }
+
+    // ---- Limpa a descrição do produto removendo artefatos de OCR ----
+    function limparNomeProduto(str) {
+      if (!str) return "";
+      return str
+        .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/g, "")   // remove preços
+        .replace(/[|<>{}\[\]\\]/g, " ")               // artefatos OCR
+        .replace(/\s{2,}/g, " ")
+        .trim();
+    }
+
+    // ================================================================
+    //  TIPO 1 — Orçamento em Tabela
+    //  Formato de linha: CÓDIGO  QTD  DESCRIÇÃO [multiplicador]  UND  VL_UNIT  VL_TOTAL
+    //  Ex: "774 3 LEITE INTEGRAL PORTO ALEGRE C/12 UD CX 66,00 198,00"
+    // ================================================================
+    function parseLinhaTabelaOrcamento(line) {
+      // Encontra TODOS os valores monetários (ex: 66,00 e 198,00)
+      const priceMatches = [...line.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/g)];
       if (priceMatches.length === 0) return null;
 
-      const vlUnitarioNota = parseNumeroPtEn(priceMatches[0][1]);
-      const vlTotalNota = priceMatches.length > 1 ? parseNumeroPtEn(priceMatches[priceMatches.length - 1][1]) : vlUnitarioNota;
+      // O PRIMEIRO preço encontrado é o VL UNITÁRIO (preço da caixa/embalagem)
+      const vlUnitNota = parseNumeroPtEn(priceMatches[0][1]);
+      if (vlUnitNota <= 0) return null;
 
-      if (vlUnitarioNota <= 0) return null;
+      // Tudo antes do primeiro preço é a parte descritiva
+      const posFirstPrice = line.indexOf(priceMatches[0][0]);
+      let trecho = line.substring(0, posFirstPrice).trim();
 
-      // Isola o trecho inicial antes dos preços
-      let trechoInicial = line.replace(/(?:R\$\s*)?\d+[\.,]\d{2}.*$/i, "").trim();
-      
-      // Extrai a coluna de Unidade da Nota (ex: CX, FD, BL, PC, PT, PCT, UN, UD, KG, M2)
+      // --- Extrai unidade da nota (última palavra antes dos preços) ---
       let unidadeNota = "";
-      const matchUnd = trechoInicial.match(/\s+(CX|FD|BL|PC|PT|PCT|UN|UD|KG|M2|CAIXA|PACOTE|UNID|LATA|LOTE|CX\.|FD\.|BL\.|PC\.|PT\.|PCT\.|UN\.)\s*$/i);
+      const matchUnd = trecho.match(
+        /\b(CX|FD|BL|PC|PT|PCT|CAIXA|FARDO|PACOTE|BLOCO|UN|UD|UNID|KG|GR|M2|M|L|LT|LITRO|ML)\s*$/i
+      );
       if (matchUnd) {
-        unidadeNota = matchUnd[1].toUpperCase().replace(".", "");
-        trechoInicial = trechoInicial.replace(/\s+(?:CX|FD|BL|PC|PT|PCT|UN|UD|KG|M2|CAIXA|PACOTE|UNID|LATA|LOTE|CX\.|FD\.|BL\.|PC\.|PT\.|PCT\.|UN\.)\s*$/i, "").trim();
+        unidadeNota = matchUnd[1].toUpperCase();
+        trecho = trecho.substring(0, trecho.lastIndexOf(matchUnd[0])).trim();
       }
 
-      // Analisa os números no início:
-      // Ex: "774 3 LEITE INTEGRAL 1 LT C/12 UD" -> num1 = 774 (CÓDIGO), num2 = 3 (QTD COMPRADA)
-      const matchNumIniciais = trechoInicial.match(/^\s*(\d{1,6})(?:\s+(\d{1,6}))?\s+(.+)$/);
-
-      let codigo = "";
+      // --- Extrai CÓDIGO e QUANTIDADE dos números iniciais ---
+      // Padrão: dois números no início → primeiro = CÓDIGO, segundo = QTD
+      // Padrão: um número no início → se >= 100 é CÓDIGO (qtd=1), se < 100 é QTD
       let qtdComprada = 1;
-      let descricaoRaw = trechoInicial;
+      let descricaoRaw = trecho;
 
-      if (matchNumIniciais) {
-        const num1 = matchNumIniciais[1];
-        const num2 = matchNumIniciais[2];
-        const restStr = matchNumIniciais[3];
-
-        if (num2 !== undefined) {
-          codigo = num1;
-          qtdComprada = parseInt(num2, 10);
-          descricaoRaw = restStr;
+      const matchDoisNums = trecho.match(/^\s*(\d{1,6})\s+(\d{1,4})\s+(.+)$/);
+      if (matchDoisNums) {
+        // Heurística: num1 é o código (geralmente maior ou igual a num2)
+        const n1 = parseInt(matchDoisNums[1], 10);
+        const n2 = parseInt(matchDoisNums[2], 10);
+        // Se n1 >> n2 OU n1 >= 100 → n1=código, n2=qtd
+        // Se n1 ~ n2 e ambos pequenos → n1=qtd, ignorar num2 (raro mas possível)
+        if (n1 >= 100 || n1 > n2 * 3) {
+          qtdComprada = n2;
+          descricaoRaw = matchDoisNums[3];
         } else {
-          if (parseInt(num1, 10) >= 100) {
-            codigo = num1;
+          // Ambos pequenos: trata n1 como qtd e n2 como início do nome
+          qtdComprada = n1;
+          descricaoRaw = matchDoisNums[2] + " " + matchDoisNums[3];
+        }
+      } else {
+        const matchUmNum = trecho.match(/^\s*(\d{1,6})\s+(.+)$/);
+        if (matchUmNum) {
+          const n = parseInt(matchUmNum[1], 10);
+          if (n >= 100) {
+            // Provavelmente código de produto → qtd = 1
             qtdComprada = 1;
-            descricaoRaw = restStr;
+            descricaoRaw = matchUmNum[2];
           } else {
-            qtdComprada = parseInt(num1, 10);
-            descricaoRaw = restStr;
+            // Provavelmente a própria quantidade
+            qtdComprada = n;
+            descricaoRaw = matchUmNum[2];
           }
         }
       }
@@ -594,82 +642,125 @@
       if (qtdComprada <= 0) qtdComprada = 1;
 
       const nomeLimpo = limparNomeProduto(descricaoRaw);
-      if (nomeLimpo.length < 2) return null;
+      if (nomeLimpo.length < 3) return null;
+      // Rejeita linhas que são claramente de cabeçalho/rodapé mesmo depois de parsear
+      if (deveIgnorarLinha(nomeLimpo.toUpperCase())) return null;
 
-      // Identifica se é Embalagem Fechada (CX, FD, BL, PC, PT, PCT) e o multiplicador por embalagem (ex: C/12 UD, C/15 UD, C/18, 10X120G)
-      const eEmbalagemFechada = ["CX", "FD", "BL", "PC", "PT", "PCT", "CAIXA", "PACOTE"].includes(unidadeNota);
-      const unidadesPorEmbalagem = extrairMultiplicador(descricaoRaw);
+      // --- Cálculo de Embalagem vs Venda Direta ---
+      const eEmbalagem = UNIDADES_EMBALAGEM.has(unidadeNota);
+      const mult = extrairMultiplicador(descricaoRaw);
 
-      let quantidadeTotalVenda = qtdComprada;
-      let custoUnitarioVenda = vlUnitarioNota;
+      let qtdVenda = qtdComprada;
+      let custoUnitVenda = vlUnitNota;
 
-      if ((eEmbalagemFechada || unidadesPorEmbalagem > 1) && unidadesPorEmbalagem > 1) {
-        // Regra 1: Embalagem Fechada com multiplicador
-        // Quantidade Total de Venda = Quantidade Comprada x Unidades por Embalagem
-        quantidadeTotalVenda = qtdComprada * unidadesPorEmbalagem;
-        // Custo Unitário por Item de Venda = Valor Unitário da Caixa / Unidades por Embalagem
-        custoUnitarioVenda = vlUnitarioNota / unidadesPorEmbalagem;
-      } else {
-        // Regra 2: Peça Única ou Venda por Unidade (UN, M2, etc.)
-        quantidadeTotalVenda = qtdComprada;
-        custoUnitarioVenda = vlUnitarioNota;
+      if (eEmbalagem && mult > 1) {
+        // Embalagem fechada com multiplicador conhecido
+        // Qtd Venda = qtd comprada × unidades por caixa
+        // Custo Unitário = preço da caixa ÷ unidades por caixa
+        qtdVenda = qtdComprada * mult;
+        custoUnitVenda = vlUnitNota / mult;
+      } else if (!eEmbalagem && mult > 1) {
+        // Ex: "GULAO QUEIJO SUICO 10X120G" sem coluna CX/FD
+        qtdVenda = qtdComprada * mult;
+        custoUnitVenda = vlUnitNota / mult;
       }
+      // UN/KG/M2 etc. → venda direta, sem alteração
 
       return {
         nome: nomeLimpo,
-        preco: custoUnitarioVenda,       // Preenchido diretamente no formulário (ex: R$ 5,50)
-        quantidade: quantidadeTotalVenda // Preenchido diretamente no formulário (ex: 36 unidades)
+        preco: custoUnitVenda,
+        quantidade: qtdVenda
       };
     }
 
-    function extrairMultiplicador(str) {
-      if (!str) return 1;
-      // 1. Padrões como "C/12 UD", "C/12UD", "C/ 12 UD", "C/15 UD", "C/18", "C/ 18"
-      const matchC = str.match(/\bC\s*\/\s*(\d+)(?:\s*UD|\s*UN|\s*UNID)?\b/i);
-      if (matchC && parseInt(matchC[1], 10) > 0) {
-        return parseInt(matchC[1], 10);
+    // ================================================================
+    //  TIPO 2 — Cupom Térmico de Distribuidora (2 linhas)
+    //  Linha 1: DESCRIÇÃO DO PRODUTO (ex: "GULAO QUEIJO SUICO 10X120G")
+    //  Linha 2: "QTD UND x VL_UNIT" (ex: "1 FD x 39,49" ou "8.000 UN x 2.75")
+    // ================================================================
+    // Regex para Linha 2: captura qtd, unidade e preço unitário
+    const RE_LINHA2_CUPOM = /^([\d\.,]+)\s*(UN|UD|UNID|KG|GR|M2|M|L|LT|CX|FD|BL|PC|PT|PCT|FARDO|CAIXA|PACOTE)?\s*[xX*]\s*(?:R\$\s*)?([\d\.,]+)/i;
+
+    function tentarParseCupomDuasLinhas(linhaDesc, linhaQtdPreco) {
+      const m = linhaQtdPreco.match(RE_LINHA2_CUPOM);
+      if (!m) return null;
+
+      const qtdComprada = parseNumeroQtd(m[1]);
+      const unidadeNota = (m[2] || "").toUpperCase();
+      const vlUnitNota  = parseNumeroPtEn(m[3]);
+
+      if (qtdComprada <= 0 || vlUnitNota <= 0) return null;
+
+      const nomeLimpo = limparNomeProduto(linhaDesc);
+      if (nomeLimpo.length < 3) return null;
+      if (deveIgnorarLinha(nomeLimpo.toUpperCase())) return null;
+
+      const eEmbalagem = UNIDADES_EMBALAGEM.has(unidadeNota);
+      const mult = extrairMultiplicador(linhaDesc);
+
+      let qtdVenda = qtdComprada;
+      let custoUnitVenda = vlUnitNota;
+
+      if (mult > 1) {
+        // Ex: "GULAO QUEIJO SUICO 10X120G" | 1 FD x 39,49
+        // → custo por unidade = 39,49 / 10 = 3,95  |  qtd venda = 1 * 10 = 10
+        qtdVenda = qtdComprada * mult;
+        custoUnitVenda = vlUnitNota / mult;
+      } else if (eEmbalagem) {
+        // Embalagem sem multiplicador na descrição
+        // → mantém preço da caixa inteira como custo (sem saber subdivisão)
+        qtdVenda = qtdComprada;
+        custoUnitVenda = vlUnitNota;
       }
-      // 2. Padrões como "10X120G", "12X350ML", "10 X 100G"
-      const matchX = str.match(/\b(\d+)\s*[xX]\s*\d+\s*(?:g|gr|gramas|kg|ml|l|lt)?\b/i);
-      if (matchX && parseInt(matchX[1], 10) > 0) {
-        return parseInt(matchX[1], 10);
-      }
-      return 1;
+      // UN/KG → venda direta
+
+      return {
+        nome: nomeLimpo,
+        preco: custoUnitVenda,
+        quantidade: qtdVenda
+      };
     }
 
-    function parseNumeroQtd(str) {
-      if (!str) return 1;
-      str = str.trim();
-      if (/^\d+[.,]0{3}$/.test(str)) {
-        return parseInt(str, 10);
-      }
-      const num = parseNumeroPtEn(str);
-      return num > 0 ? num : 1;
-    }
+    // ================================================================
+    //  FUNÇÃO PRINCIPAL DE PARSING — tenta os 3 tipos em sequência
+    // ================================================================
+    function parseOrcamentoTexto(text) {
+      const linhasOriginais = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      const resultados = [];
+      const usada = new Array(linhasOriginais.length).fill(false);
 
-    function parseNumeroPtEn(str) {
-      if (!str) return 0;
-      str = str.trim();
-      if (/^\d{1,3}(\.\d{3})+,\d+$/.test(str)) {
-        return parseFloat(str.replace(/\./g, "").replace(",", "."));
-      }
-      if (/^\d{1,3}(,\d{3})+\.\d+$/.test(str)) {
-        return parseFloat(str.replace(/,/g, ""));
-      }
-      if (str.includes(",")) {
-        return parseFloat(str.replace(/\./g, "").replace(",", "."));
-      }
-      return parseFloat(str);
-    }
+      for (let i = 0; i < linhasOriginais.length; i++) {
+        if (usada[i]) continue;
 
-    function limparNomeProduto(str) {
-      if (!str) return "";
-      return str
-        .replace(/^\s*\d{1,6}\s+/, "") // Remove código inicial solto se houver
-        .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/gi, "")
-        .replace(/[^\w\sÀ-ú\/\.]/gi, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+        const line = linhasOriginais[i];
+        const lineUpper = line.toUpperCase();
+
+        // Ignora linhas de cabeçalho / rodapé
+        if (deveIgnorarLinha(lineUpper)) continue;
+
+        // ── TIPO 2: Cupom Térmico ── testa se a PRÓXIMA linha é "QTD x PREÇO"
+        if (i + 1 < linhasOriginais.length && !usada[i + 1]) {
+          const proximaLinha = linhasOriginais[i + 1];
+          const item2L = tentarParseCupomDuasLinhas(line, proximaLinha);
+          if (item2L) {
+            resultados.push(item2L);
+            usada[i] = true;
+            usada[i + 1] = true;
+            i++; // pula a linha de qtd/preço
+            continue;
+          }
+        }
+
+        // ── TIPO 1: Orçamento em Tabela (linha única com preços) ──
+        const item1L = parseLinhaTabelaOrcamento(line);
+        if (item1L) {
+          resultados.push(item1L);
+          usada[i] = true;
+          continue;
+        }
+      }
+
+      return resultados;
     }
 
     function preencherFormulario(item) {

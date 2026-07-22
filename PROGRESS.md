@@ -1,31 +1,41 @@
 # Registro de Progresso - Caixa Freitas (Calculadora v2)
 
 ## 📌 Última Atualização
-- **Data e Hora da Mudança / Conclusão**: 22/07/2026 14:45 (Horário de Brasília)
-- **Tempo Estimado Gasto**: 10 minutos
+- **Data e Hora da Mudança / Conclusão**: 22/07/2026 15:50 (Horário de Brasília)
+- **Tempo Estimado Gasto**: 20 minutos
 
 ## 📝 Arquivos Modificados
 - [`index.html`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/index.html):
-  - Inteligência de Custos (Embalagem Fechada vs Peça Única):
-    - **Embalagem Fechada** (`CX`, `FD`, `BL`, `PC`, `PT`, `PCT`) com multiplicador na descrição (`C/12 UD`, `C/15 UD`, `C/18`, `10X120G`):
-      * `QUANTIDADE TOTAL DE VENDA` = Quantidade Comprada x Unidades por Embalagem (ex: 3 caixas x 12 = 36 unidades).
-      * `CUSTO UNITÁRIO POR ITEM DE VENDA` = Valor Unitário da Caixa / Unidades por Embalagem (ex: R$ 66,00 / 12 = R$ 5,50 por caixinha).
-    - **Peça Única ou Venda Unitária** (`UN`, `M2`, `KG` ou sem multiplicador):
-      * `QUANTIDADE TOTAL DE VENDA` = Quantidade da nota.
-      * `CUSTO UNITÁRIO POR ITEM DE VENDA` = Valor Unitário direto da nota.
-  - Preenchimento Automático do Formulário: O formulário é preenchido diretamente com o custo unitário do item de venda e a quantidade total para cálculo instantâneo da margem e preço final.
-- [`PROGRESS.md`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/PROGRESS.md): Atualizado o registro de status e alterações do projeto.
+  - **Reescrita completa do parser OCR** com suporte a 3 tipos de documentos:
+    - **Tipo 1 — Orçamento em Tabela** (`CÓDIGO QTD PRODUTO UND VL_UNIT VL_TOTAL`):
+      * Heurística de 2 números iniciais: se `n1 >= 100` ou `n1 > n2*3`, então `n1=código` e `n2=qtd`. Nunca usa o código como quantidade.
+      * Embalagem fechada (`CX`, `FD`, `BL`, `PC`, `PT`, `PCT`) com multiplicador (`C/12 UD`, `C/15`, `10X120G`): `qtd_venda = qtd_comprada × mult`, `custo = vlUnit / mult`.
+      * Venda direta (`UN`, `KG`, `M2`, `L`, etc.): sem subdivição de custo.
+    - **Tipo 2 — Cupom Térmico de Distribuidora** (2 linhas):
+      * Linha 1 = descrição do produto (ex: `GULAO QUEIJO SUICO 10X120G`).
+      * Linha 2 = `QTD UND x VL_UNIT` (ex: `1 FD x 39,49`).
+      * Multiplicador (`10X120G`) aplicado: custo por unidade = `39,49 / 10 = R$ 3,95`; qtd venda = `1 × 10 = 10`.
+    - **Tipo 3 — Notas de Construção / Lojas** (Agrizzi e similares):
+      * Filtro expandido de linhas de cabeçalho e rodapé (CNPJ, CPF, telefone, endereço, totais, carimbos, etc.).
+      * Detecção por regex de linhas de CNPJ (`\d{2}\.\d{3}\.\d{3}\/...`), telefone e data.
+  - Novas funções adicionadas: `deveIgnorarLinha()`, `parseLinhaTabelaOrcamento()`, `tentarParseCupomDuasLinhas()`.
+  - Função `limparNomeProduto()` refatorada para remover artefatos OCR (`|`, `<`, `>`, `{}`, `[]`).
+  - Array de controle `usada[]` para evitar que linhas sejam re-processadas.
+- [`PROGRESS.md`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/PROGRESS.md): Atualizado com o registro desta alteração.
 
 ## 🛠️ Problemas Corrigidos
-- Correção na distinção entre embalagens de caixa/fardo e vendas por peça/unidade.
-- Garantia de que a tela receba os valores de custo por caixinha/item individual (R$ 5,50 no caso do leite) e quantidade total de venda (36 unidades).
+- **Código do produto sendo lido como Quantidade**: Heurística `n1 >= 100 || n1 > n2 * 3` garante que o número grande inicial seja sempre tratado como código, e o segundo como a quantidade real.
+- **Multiplicador ignorado em cupons térmicos**: O parse de 2 linhas agora extrai corretamente o multiplicador da descrição (ex: `10X120G`) e divide o valor da embalagem por ele.
+- **Linhas de cabeçalho / rodapé capturadas incorretamente**: Lista de filtros expandida com CNPJ, CPF, telefone, endereço, tributos, fatura, comprovante, etc.
 
 ## 📊 Status Atual do Sistema
 - **Status**: Operacional e Otimizado
 - **Recursos Ativos**:
-  - Extração inteligente de unidades de venda da padaria vs unidades de compra da nota.
-  - Preenchimento automático com Custo Unitário Real e Quantidade de Venda Total.
-  - Leitura dupla por Câmera (`📷 Tirar Foto`) e Galeria (`🖼️ Escolher da Galeria`).
+  - Parser OCR com 3 modos de leitura: Tabela de Orçamento, Cupom Térmico (2 linhas) e Notas de Loja.
+  - Distinção automática entre embalagem fechada e venda por unidade.
+  - Custo Unitário Real e Quantidade de Venda Total preenchidos diretamente no formulário.
+  - Leitura por Câmera (`📷 Tirar Foto`) e Galeria (`🖼️ Escolher da Galeria`).
 
 ## ⚠️ Problemas Encontrados (se houver)
 - Nenhum.
+
