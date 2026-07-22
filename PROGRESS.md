@@ -1,30 +1,28 @@
 # Registro de Progresso - Caixa Freitas (Calculadora v2)
 
 ## 📌 Última Atualização
-- **Data e Hora da Mudança / Conclusão**: 22/07/2026 14:15 (Horário de Brasília)
-- **Tempo Estimado Gasto**: 15 minutos
+- **Data e Hora da Mudança / Conclusão**: 22/07/2026 14:26 (Horário de Brasília)
+- **Tempo Estimado Gasto**: 10 minutos
 
 ## 📝 Arquivos Modificados
 - [`index.html`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/index.html):
-  - Interface: Adicionados dois botões distintos (`📷 Tirar Foto` com `capture="environment"` e `🖼️ Escolher da Galeria` sem `capture`).
-  - Parser OCR: Suporte avançado a cupons térmicos de distribuidora com estrutura em duas linhas (Linha 1: Descrição, Linha 2: Fórmula `QTD UN x VL_UNITARIO`).
-  - Formatos Numéricos: Tratamento de numeração brasileira e americana (ex: `8.000 UN x 2.75` ou `8,000 UN x 2,75`).
-  - Regra de Fardos/Multiplicadores: Suporte a `10X120G`, `10X100G`, `10X62G`, `24X350ML` na descrição para recalcular quantidade total de unidades e o preço de custo unitário.
-  - Filtro de Cabeçalhos/Rodapés: Filtro ampliado para ignorar termos de distribuidoras (`BUZIM DISTRIBUIDORA`, `VENDA SIMPLES`, `NAO E DOCUMENTO FISCAL`, `SUBTOTAL`, `TOTAL`, `DINHEIRO`, `DADOS PARA ENTREGA`, `TRIBUTOS`).
+  - Estrutura Rígida de Leitura: Implementado isolamento estrito da coluna `[CÓDIGO]` (primeiro número de 3-4 dígitos) para não ser confundido com a `[QUANTIDADE COMPRADA]` (número logo após o código e antes da descrição).
+  - Suporte a Multiplicadores `C/12`, `C/15`, `C/18`, `C/24`: Cálculo automático da quantidade total de vendas (`Quantidade Comprada x Multiplicador`) e recalculo do Preço de Custo Unitário por item (ex: 3 CX x 12 UD = 36 unidades, R$ 66,00 / 12 = R$ 5,50/unidade).
+  - Proteção de Expressões de Volume/Peso: Preservação de termos como `1 LT`, `1LT`, `2KG`, `600G`, `84 G`, `500 ML` sem que números de litragem/peso sejam mesclados com o código ou quantidade.
 - [`PROGRESS.md`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/PROGRESS.md): Atualizado o registro de status e alterações do projeto.
 
 ## 🛠️ Problemas Corrigidos
-- Adicionada opção explícita de escolher foto da galeria do celular.
-- Leitura e conversão perfeita de cupons térmicos em duas linhas típicos de distribuidoras alimentícias.
+- Impedido que o código do produto (ex: 774, 307, 238, 828) fosse lido como quantidade.
+- Impedida a união indevida do volume (ex: 1 LT) com o código de produto (gerando 178).
+- Ajustado o cálculo de fardos e caixas com anotador `C/12`, `C/15`, `C/18`.
 
 ## 📊 Status Atual do Sistema
-- **Status**: Operacional e Atualizado
+- **Status**: Operacional e Otimizado
 - **Recursos Ativos**:
-  - Dois botões nativos na interface (`📷 Tirar Foto` e `🖼️ Escolher da Galeria`).
-  - Parser inteligente para cupons térmicos de distribuidora (estrutura de 2 linhas).
-  - Normalização automática de números PT-BR e EN (vírgulas e pontos decimais).
-  - Decomposição de fardos e pacotes promocionais (`10X120G`, etc.).
-  - Preenchimento e seletor rápido de itens lidos.
+  - Parser com extração rígida de colunas `[CÓDIGO] [QTD] [DESCRIÇÃO] [UND] [VL_UNITARIO] [VL_TOTAL]`.
+  - Recalculo dinâmico de volumes de caixa (`C/12`, `C/15`, `C/18`) para unidades reais e custo individual.
+  - Preservação intacta de litragens e gramaturas no nome do produto.
+  - Dois botões de aquisição (`📷 Tirar Foto` e `🖼️ Escolher da Galeria`).
 
 ## ⚠️ Problemas Encontrados (se houver)
 - Nenhum.
