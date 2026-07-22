@@ -138,6 +138,221 @@
       }
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      display: flex;
+      height: 100vh;
+      flex-direction: column;
+    }
+
+    .container {
+      flex: 1;
+      padding: 20px;
+      box-sizing: border-box;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .sidebar {
+      flex: 1;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    input, button {
+      margin: 10px 0;
+      padding: 8px;
+      width: 100%;
+      box-sizing: border-box;
+      transition: transform 0.1s ease-in-out;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      color: white;
+      font-size: 1em;
+    }
+
+    button:active {
+      transform: scale(0.95);
+    }
+
+    .camera-btn {
+      background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
+      color: white;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 1em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 12px;
+    }
+
+    .camera-btn:hover {
+      background: linear-gradient(135deg, #3b5998 0%, #0f1b33 100%);
+    }
+
+    .ocr-status {
+      margin: 5px 0 15px 0;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background-color: #f0f4f8;
+      border: 1px solid #cbd5e1;
+      font-size: 0.9em;
+      color: #334155;
+    }
+
+    .ocr-progress-bar-bg {
+      width: 100%;
+      height: 8px;
+      background-color: #cbd5e1;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+
+    .ocr-progress-bar {
+      height: 100%;
+      width: 0%;
+      background-color: #2563eb;
+      transition: width 0.2s ease-in-out;
+    }
+
+    .ocr-items-container {
+      margin-bottom: 15px;
+      padding: 10px;
+      background: #f8fafc;
+      border: 1px solid #93c5fd;
+      border-radius: 6px;
+      font-size: 0.9em;
+    }
+
+    .ocr-items-title {
+      font-weight: bold;
+      color: #1e3a8a;
+      margin-bottom: 8px;
+    }
+
+    .ocr-item-chip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      margin-top: 6px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .ocr-item-chip:hover {
+      background: #eff6ff;
+      border-color: #2563eb;
+    }
+
+    .product-list {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    .product-item {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 15px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background-color: #e6ffe6;
+    }
+
+    .delete-btn {
+      background-color: #ff4d4d;
+      padding: 3px 8px;
+      font-size: 12px;
+      align-self: flex-end;
+    }
+
+    .save-btn {
+      background-color: #28a745;
+    }
+
+    .clear-btn {
+      background-color: #dc3545;
+    }
+
+    .add-product-btn {
+      background-color: #28a745;
+    }
+
+    .price-green {
+      color: green;
+      font-weight: bold;
+    }
+
+    .logo-container {
+      text-align: center;
+      margin-bottom: 20px;
+      background-color: #581d22;
+      padding: 15px;
+      border-radius: 8px;
+    }
+
+    .logo-container img {
+      max-width: 60%;
+      height: auto;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      margin: 0 auto;
+    }
+
+    .logo-container h2,
+    .logo-container p {
+      color: white;
+      margin: 5px 0;
+    }
+
+    .controls-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .controls-container button {
+      padding: 5px 10px;
+      font-size: 0.9em;
+    }
+
+    @media (min-width: 768px) {
+      body {
+        flex-direction: row;
+      }
+
+      .container {
+        border-right: 1px solid #ddd;
+        border-bottom: none;
+      }
+
+      .sidebar {
+        border-left: 1px solid #ddd;
+      }
+
+      .logo-container img {
+        max-width: 40%;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -145,6 +360,14 @@
       <h2>Calculadora de Preço</h2>
       <p>Padaria Freitas</p>
     </div>
+
+    <!-- Botão de Câmera e OCR -->
+    <button type="button" class="camera-btn" onclick="document.getElementById('cameraInput').click()">📷 Ler Nota / Orçamento</button>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display: none;" onchange="processarImagemOCR(event)" />
+    
+    <div id="ocrStatus" class="ocr-status" style="display: none;"></div>
+    <div id="ocrItemsContainer" class="ocr-items-container" style="display: none;"></div>
+
     <input type="text" id="produto" placeholder="Nome do produto" />
     <input type="text" id="precoCusto" placeholder="Preço de custo (R$)" />
     <input type="number" id="quantidade" placeholder="Quantidade" />
@@ -166,6 +389,7 @@
 
     precoCustoInput.addEventListener("input", function (e) {
       let valor = e.target.value.replace(/\D/g, "");
+      if (!valor) return;
       valor = (parseInt(valor, 10) / 100).toFixed(2);
       e.target.value = "R$" + valor.replace(".", ",");
     });
@@ -234,6 +458,180 @@
       if (confirm("Tem certeza que deseja limpar a lista?")) {
         document.getElementById("listaProdutos").innerHTML = "";
         localStorage.removeItem("produtosPadaria");
+      }
+    }
+
+    // --- Lógica do OCR com Tesseract.js ---
+    let itensDetectadosOCR = [];
+
+    async function processarImagemOCR(event) {
+      const fileInput = event.target;
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const statusDiv = document.getElementById("ocrStatus");
+      const itemsDiv = document.getElementById("ocrItemsContainer");
+      
+      itemsDiv.style.display = "none";
+      itemsDiv.innerHTML = "";
+      statusDiv.style.display = "block";
+      statusDiv.innerHTML = `
+        <div id="ocrStatusText">⌛ Inicializando leitor de imagem (Tesseract.js em português)...</div>
+        <div class="ocr-progress-bar-bg"><div id="ocrProgressBar" class="ocr-progress-bar"></div></div>
+      `;
+
+      try {
+        const worker = await Tesseract.createWorker('por');
+        
+        const ret = await worker.recognize(file, {}, {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              const pct = Math.round((m.progress || 0) * 100);
+              const textElem = document.getElementById("ocrStatusText");
+              const barElem = document.getElementById("ocrProgressBar");
+              if (textElem) textElem.innerText = `🔍 Reconhecendo texto... (${pct}%)`;
+              if (barElem) barElem.style.width = `${pct}%`;
+            } else if (m.status) {
+              const textElem = document.getElementById("ocrStatusText");
+              if (textElem) textElem.innerText = `⚙️ ${m.status}...`;
+            }
+          }
+        });
+
+        await worker.terminate();
+
+        const textoReconhecido = ret.data.text || "";
+        console.log("Texto OCR:", textoReconhecido);
+
+        itensDetectadosOCR = parseOrcamentoTexto(textoReconhecido);
+
+        if (itensDetectadosOCR.length > 0) {
+          statusDiv.innerHTML = `✅ <strong>${itensDetectadosOCR.length} item(ns) encontrado(s) na nota!</strong>`;
+          
+          // Preenche automaticamente com o primeiro item encontrado
+          preencherFormulario(itensDetectadosOCR[0]);
+
+          // Se houver múltiplos itens, apresenta lista para o usuário selecionar outros
+          if (itensDetectadosOCR.length > 1) {
+            exibirListaItensOCR(itensDetectadosOCR);
+          }
+        } else {
+          statusDiv.innerHTML = `⚠️ Não foi possível identificar a estrutura de produtos na imagem. Tente uma foto com melhor iluminação e alinhamento.`;
+        }
+      } catch (err) {
+        console.error("Erro no processamento OCR:", err);
+        statusDiv.innerHTML = `❌ Erro ao processar a imagem com OCR. Verifique sua conexão ou tente outra imagem.`;
+      } finally {
+        fileInput.value = ""; // reseta o input file
+      }
+    }
+
+    function parseOrcamentoTexto(text) {
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      const resultados = [];
+
+      // Palavras-chave a ignorar (cabeçalhos/rodapés comuns de cupons e orçamentos)
+      const ignorar = [
+        "CNPJ", "CPF", "ENDERECO", "TELEFONE", "DATA", "HORA", "TOTAL", "SUBTOTAL", 
+        "EMISSAO", "INSCRICAO", "CHAVE", "OBRIGADO", "VOLTE SEMPRE", "NOTA FISCAL", 
+        "CUPOM", "VALOR PAGO", "TROCO", "DINHEIRO", "CARTAO", "ITEM", "DESCRICAO", 
+        "QTD", "VL.UNIT", "VLR.UNIT", "PRECO"
+      ];
+
+      for (let line of lines) {
+        const lineUpper = line.toUpperCase();
+        
+        // Pulando cabeçalhos/rodapés irrelevantes
+        if (ignorar.some(term => lineUpper.includes(term) && !lineUpper.match(/\d+[\.,]\d{2}/))) {
+          continue;
+        }
+
+        // Tentar extrair preço (padrão R$ 0,00 ou 0,00 ou 0.00)
+        // Pega valores monetários da linha
+        const priceMatches = [...line.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
+        if (priceMatches.length === 0) continue;
+
+        // Pega o valor (prefere o último ou valor unitário se houver múltiplos)
+        let precoStr = priceMatches[0][1];
+        if (priceMatches.length > 1) {
+          // Se tiver 2+ valores (ex: Vl.Unit e Vl.Total), pega o unitário (normalmente o primeiro) ou menor
+          precoStr = priceMatches[0][1];
+        }
+
+        let preco = parseFloat(precoStr.replace(".", "").replace(",", "."));
+        if (isNaN(preco) || preco <= 0) continue;
+
+        // Tentar extrair quantidade (ex: 2x, 2UN, 2 UN, 2.00, ou número solto no começo)
+        let quantidade = 1;
+        const qtdMatch = line.match(/(?:^|\s)(\d+)(?:\s*(?:x|un|kg|g|pct|cx|unid))?(?=\s|$)/i);
+        if (qtdMatch && parseInt(qtdMatch[1], 10) > 0 && parseInt(qtdMatch[1], 10) < 1000) {
+          quantidade = parseInt(qtdMatch[1], 10);
+        }
+
+        // Tentar extrair nome do produto limpando o preço, quantidade e palavras-chave
+        let nome = line
+          .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/gi, "") // Remove preços
+          .replace(/(?:^|\s)\d+\s*(?:x|un|kg|g|pct|cx|unid)?(?=\s|$)/gi, "") // Remove quantidade
+          .replace(/[^\w\sÀ-ú]/gi, " ") // Remove caracteres especiais
+          .replace(/\s+/g, " ")
+          .trim();
+
+        if (nome.length >= 2) {
+          resultados.push({
+            nome: nome,
+            preco: preco,
+            quantidade: quantidade
+          });
+        }
+      }
+
+      // Fallback: Se não encontrou linhas tabulares estruturadas, tenta busca genérica de produto e preço no texto
+      if (resultados.length === 0) {
+        const prices = [...text.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
+        if (prices.length > 0) {
+          const primeiroPreco = parseFloat(prices[0][1].replace(".", "").replace(",", "."));
+          // Procura maior linha de texto que não seja preço para usar como nome
+          const candidateLines = lines.filter(l => !l.match(/^(?:R\$\s*)?\d+[\.,]\d{2}$/));
+          const nomeFallback = candidateLines.length > 0 ? candidateLines[0].replace(/[^\w\sÀ-ú]/gi, " ").trim() : "Produto Nota";
+          
+          if (primeiroPreco > 0) {
+            resultados.push({
+              nome: nomeFallback || "Produto Nota",
+              preco: primeiroPreco,
+              quantidade: 1
+            });
+          }
+        }
+      }
+
+      return resultados;
+    }
+
+    function preencherFormulario(item) {
+      document.getElementById("produto").value = item.nome;
+      document.getElementById("precoCusto").value = "R$" + item.preco.toFixed(2).replace(".", ",");
+      document.getElementById("quantidade").value = item.quantidade;
+    }
+
+    function exibirListaItensOCR(itens) {
+      const container = document.getElementById("ocrItemsContainer");
+      container.style.display = "block";
+      
+      let html = `<div class="ocr-items-title">📋 Clique em um item para preencher:</div>`;
+      itens.forEach((item, index) => {
+        html += `
+          <div class="ocr-item-chip" onclick="selecionarItemOCR(${index})">
+            <span><strong>${item.nome}</strong> (Qtd: ${item.quantidade})</span>
+            <span class="price-green">R$ ${item.preco.toFixed(2).replace(".", ",")}</span>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    }
+
+    function selecionarItemOCR(index) {
+      if (itensDetectadosOCR[index]) {
+        preencherFormulario(itensDetectadosOCR[index]);
       }
     }
 
