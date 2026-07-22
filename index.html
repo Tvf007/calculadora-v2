@@ -45,25 +45,43 @@
       transform: scale(0.95);
     }
 
-    .camera-btn {
-      background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
-      color: white;
+    .ocr-buttons-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .ocr-buttons-group button {
+      flex: 1;
+      margin: 0;
       font-weight: bold;
-      border: none;
       border-radius: 6px;
       padding: 12px;
-      font-size: 1em;
+      font-size: 0.95em;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      margin-bottom: 12px;
+    }
+
+    .camera-btn {
+      background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
+      color: white;
     }
 
     .camera-btn:hover {
       background: linear-gradient(135deg, #3b5998 0%, #0f1b33 100%);
+    }
+
+    .gallery-btn {
+      background: linear-gradient(135deg, #6f42c1 0%, #4527a0 100%);
+      color: white;
+    }
+
+    .gallery-btn:hover {
+      background: linear-gradient(135deg, #5e35b1 0%, #311b92 100%);
     }
 
     .ocr-status {
@@ -226,9 +244,13 @@
       <p>Padaria Freitas</p>
     </div>
 
-    <!-- Botão de Câmera e OCR -->
-    <button type="button" class="camera-btn" onclick="abrirLeitorOCR()">📷 Ler Nota / Orçamento</button>
+    <!-- Botões de Câmera e Galeria para OCR -->
+    <div class="ocr-buttons-group">
+      <button type="button" class="camera-btn" onclick="abrirLeitorCamera()">📷 Tirar Foto</button>
+      <button type="button" class="gallery-btn" onclick="abrirLeitorGaleria()">🖼️ Escolher da Galeria</button>
+    </div>
     <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display: none;" onchange="processarImagemOCR(event)" />
+    <input type="file" id="galleryInput" accept="image/*" style="display: none;" onchange="processarImagemOCR(event)" />
     
     <div id="ocrStatus" class="ocr-status" style="display: none;"></div>
     <div id="ocrItemsContainer" class="ocr-items-container" style="display: none;"></div>
@@ -351,11 +373,14 @@
       return scriptTesseractPromise;
     }
 
-    function abrirLeitorOCR() {
-      // Inicia o pré-carregamento do script em background ao clicar no botão
+    function abrirLeitorCamera() {
       carregarTesseractJS().catch(err => console.warn("Carregando Tesseract...", err));
-      // Abre a câmera ou galeria do dispositivo
       document.getElementById("cameraInput").click();
+    }
+
+    function abrirLeitorGaleria() {
+      carregarTesseractJS().catch(err => console.warn("Carregando Tesseract...", err));
+      document.getElementById("galleryInput").click();
     }
 
     async function processarImagemOCR(event) {
@@ -434,7 +459,7 @@
           <div style="font-size: 0.85em; margin-top: 4px; color: #555;">
             O download dos dados de idioma ('por') demorou demais ou houve falha na conexão de rede.
           </div>
-          <button type="button" onclick="abrirLeitorOCR()" style="margin-top: 8px; padding: 6px 12px; background-color: #2563eb; color: white; border-radius: 4px; cursor: pointer;">🔄 Tentar Novamente</button>
+          <button type="button" onclick="abrirLeitorCamera()" style="margin-top: 8px; padding: 6px 12px; background-color: #2563eb; color: white; border-radius: 4px; cursor: pointer;">🔄 Tentar Novamente</button>
         `;
       } finally {
         if (worker) {
@@ -442,76 +467,178 @@
             await worker.terminate();
           } catch (e) {}
         }
-        fileInput.value = ""; // reseta o input file
+        fileInput.value = ""; // reseta os inputs file
+        const galleryInput = document.getElementById("galleryInput");
+        if (galleryInput) galleryInput.value = "";
       }
     }
 
+    // --- Parser Especializado em Cupons Térmicos de Distribuidora ---
     function parseOrcamentoTexto(text) {
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
       const resultados = [];
 
+      // Ignora cabeçalhos e rodapés comuns de distribuidoras e cupons térmicos
       const ignorar = [
-        "CNPJ", "CPF", "ENDERECO", "TELEFONE", "DATA", "HORA", "TOTAL", "SUBTOTAL", 
-        "EMISSAO", "INSCRICAO", "CHAVE", "OBRIGADO", "VOLTE SEMPRE", "NOTA FISCAL", 
-        "CUPOM", "VALOR PAGO", "TROCO", "DINHEIRO", "CARTAO", "ITEM", "DESCRICAO", 
-        "QTD", "VL.UNIT", "VLR.UNIT", "PRECO"
+        "BUZIM DISTRIBUIDORA", "VENDA SIMPLES", "NAO E DOCUMENTO FISCAL", "NÃO É DOCUMENTO FISCAL",
+        "CLIENTE", "PEDIDO", "SUBTOTAL", "TOTAL", "DINHEIRO", "TROCO", "CARTAO", "CARTÃO", "PIX",
+        "RECEBIDO", "VALOR PAGO", "VALOR TOTAL", "DADOS PARA ENTREGA", "TRIBUTOS", "FORMA DE PAGAMENTO",
+        "DESCONTO", "CNPJ", "CPF", "ENDERECO", "ENDEREÇO", "TELEFONE", "DATA", "HORA", "EMISSAO", 
+        "EMISSÃO", "INSCRICAO", "INSCRIÇÃO", "CHAVE", "OBRIGADO", "VOLTE SEMPRE", "NOTA FISCAL", 
+        "CUPOM", "BAIRRO", "CIDADE", "IE", "ITEM", "DESCRICAO", "QTD", "VL.UNIT", "VLR.UNIT", "PRECO"
       ];
 
-      for (let line of lines) {
+      // Regex para fórmula de quantidade e preço: ex "8.000 UN x 2.75" ou "8,000 UN x 2,75" ou "8 UN x 2.75 22.00"
+      const regexFormulaQtdPreco = /(?:^|\s)([\d\.,]+)\s*(?:UN|KG|CX|PCT|G|L|CAIXA|UNID|X)?\s*[xX*]\s*(?:R\$\s*)?([\d\.,]+)/i;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         const lineUpper = line.toUpperCase();
-        
-        if (ignorar.some(term => lineUpper.includes(term) && !lineUpper.match(/\d+[\.,]\d{2}/))) {
+
+        if (ignorar.some(term => lineUpper.includes(term) && !lineUpper.match(regexFormulaQtdPreco))) {
           continue;
         }
 
+        // 1. Estrutura em DUAS LINHAS (Linha i = Descrição do Produto, Linha i+1 = QTD x PREÇO_UNIT)
+        if (i + 1 < lines.length) {
+          const nextLine = lines[i + 1];
+          const matchNext = nextLine.match(regexFormulaQtdPreco);
+          if (matchNext) {
+            const qtdRaw = matchNext[1];
+            const precoRaw = matchNext[2];
+
+            const qtdBase = parseNumeroQtd(qtdRaw);
+            const precoBase = parseNumeroPtEn(precoRaw);
+
+            if (qtdBase > 0 && precoBase > 0) {
+              const nomeProduto = extrairNomeProduto(line);
+              if (nomeProduto.length >= 2) {
+                const calculados = calcularFardoOuUnidade(nomeProduto, qtdBase, precoBase);
+                resultados.push({
+                  nome: nomeProduto,
+                  preco: calculados.preco,
+                  quantidade: calculados.quantidade
+                });
+                i++; // Avança pois a próxima linha já foi consumida
+                continue;
+              }
+            }
+          }
+        }
+
+        // 2. Estrutura NA MESMA LINHA (Linha i contém Descrição + QTD x PREÇO)
+        const matchSame = line.match(regexFormulaQtdPreco);
+        if (matchSame) {
+          const qtdRaw = matchSame[1];
+          const precoRaw = matchSame[2];
+
+          const qtdBase = parseNumeroQtd(qtdRaw);
+          const precoBase = parseNumeroPtEn(precoRaw);
+
+          if (qtdBase > 0 && precoBase > 0) {
+            const nomeProduto = extrairNomeProduto(line.replace(regexFormulaQtdPreco, ""));
+            if (nomeProduto.length >= 2) {
+              const calculados = calcularFardoOuUnidade(nomeProduto, qtdBase, precoBase);
+              resultados.push({
+                nome: nomeProduto,
+                preco: calculados.preco,
+                quantidade: calculados.quantidade
+              });
+              continue;
+            }
+          }
+        }
+
+        // 3. Fallback para linha simples com preço isolado (ex: "BISCOITO MARIA R$ 2,75")
         const priceMatches = [...line.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
-        if (priceMatches.length === 0) continue;
+        if (priceMatches.length > 0) {
+          let precoBase = parseNumeroPtEn(priceMatches[0][1]);
+          if (precoBase > 0) {
+            let qtdBase = 1;
+            const qtdMatch = line.match(/(?:^|\s)(\d+)(?:\s*(?:x|un|kg|g|pct|cx|unid))?(?=\s|$)/i);
+            if (qtdMatch && parseInt(qtdMatch[1], 10) > 0 && parseInt(qtdMatch[1], 10) < 1000) {
+              qtdBase = parseInt(qtdMatch[1], 10);
+            }
 
-        let precoStr = priceMatches[0][1];
-
-        let preco = parseFloat(precoStr.replace(".", "").replace(",", "."));
-        if (isNaN(preco) || preco <= 0) continue;
-
-        let quantidade = 1;
-        const qtdMatch = line.match(/(?:^|\s)(\d+)(?:\s*(?:x|un|kg|g|pct|cx|unid))?(?=\s|$)/i);
-        if (qtdMatch && parseInt(qtdMatch[1], 10) > 0 && parseInt(qtdMatch[1], 10) < 1000) {
-          quantidade = parseInt(qtdMatch[1], 10);
-        }
-
-        let nome = line
-          .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/gi, "")
-          .replace(/(?:^|\s)\d+\s*(?:x|un|kg|g|pct|cx|unid)?(?=\s|$)/gi, "")
-          .replace(/[^\w\sÀ-ú]/gi, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-
-        if (nome.length >= 2) {
-          resultados.push({
-            nome: nome,
-            preco: preco,
-            quantidade: quantidade
-          });
-        }
-      }
-
-      if (resultados.length === 0) {
-        const prices = [...text.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
-        if (prices.length > 0) {
-          const primeiroPreco = parseFloat(prices[0][1].replace(".", "").replace(",", "."));
-          const candidateLines = lines.filter(l => !l.match(/^(?:R\$\s*)?\d+[\.,]\d{2}$/));
-          const nomeFallback = candidateLines.length > 0 ? candidateLines[0].replace(/[^\w\sÀ-ú]/gi, " ").trim() : "Produto Nota";
-          
-          if (primeiroPreco > 0) {
-            resultados.push({
-              nome: nomeFallback || "Produto Nota",
-              preco: primeiroPreco,
-              quantidade: 1
-            });
+            const nomeProduto = extrairNomeProduto(line);
+            if (nomeProduto.length >= 2) {
+              const calculados = calcularFardoOuUnidade(nomeProduto, qtdBase, precoBase);
+              resultados.push({
+                nome: nomeProduto,
+                preco: calculados.preco,
+                quantidade: calculados.quantidade
+              });
+            }
           }
         }
       }
 
       return resultados;
+    }
+
+    function parseNumeroQtd(str) {
+      if (!str) return 1;
+      str = str.trim();
+      // Formato 8.000 ou 8,000 (3 zeros no final indica 8 unidades no ERP)
+      if (/^\d+[.,]0{3}$/.test(str)) {
+        return parseInt(str, 10);
+      }
+      const num = parseNumeroPtEn(str);
+      return num > 0 ? num : 1;
+    }
+
+    function parseNumeroPtEn(str) {
+      if (!str) return 0;
+      str = str.trim();
+      // Formato BR ex: 1.234,56
+      if (/^\d{1,3}(\.\d{3})+,\d+$/.test(str)) {
+        return parseFloat(str.replace(/\./g, "").replace(",", "."));
+      }
+      // Formato US ex: 1,234.56
+      if (/^\d{1,3}(,\d{3})+\.\d+$/.test(str)) {
+        return parseFloat(str.replace(/,/g, ""));
+      }
+      // Formato com vírgula ex: 2,75
+      if (str.includes(",")) {
+        return parseFloat(str.replace(/\./g, "").replace(",", "."));
+      }
+      return parseFloat(str);
+    }
+
+    function extrairNomeProduto(str) {
+      return str
+        .replace(/^(?:#|\d{1,4}[\.\-\s]+)+/, "") // Remove código de item do início (ex: 001, 01-, #01)
+        .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/gi, "")
+        .replace(/(?:^|\s)\d+[\.,]?\d*\s*(?:un|kg|g|pct|cx|unid)?(?=\s|$)/gi, "")
+        .replace(/[^\w\sÀ-ú]/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function calcularFardoOuUnidade(nome, qtdBase, precoBase) {
+      // Identifica multiplicadores como 10X120G, 12X100G, 10X62G, 24X350ML
+      const matchFardo = nome.match(/(\d+)\s*[xX]\s*\d+\s*(?:g|gr|gramas|kg|ml|l)?/i);
+      let quantidadeFinal = qtdBase;
+      let precoFinal = precoBase;
+
+      if (matchFardo) {
+        const fatorFardo = parseInt(matchFardo[1], 10);
+        if (fatorFardo > 1) {
+          // Recalcula quantidade total de unidades individuais
+          quantidadeFinal = qtdBase * fatorFardo;
+          
+          // Se o preço registrado for maior que R$ 10.00 para um fardo com multiplicador,
+          // calcula o preço de custo unitário por item individual
+          if (precoBase > 10) {
+            precoFinal = precoBase / fatorFardo;
+          }
+        }
+      }
+
+      return {
+        quantidade: quantidadeFinal,
+        preco: precoFinal
+      };
     }
 
     function preencherFormulario(item) {
