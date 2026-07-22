@@ -285,14 +285,16 @@
       return parseFloat(precoFormatado.replace("R$", "").replace(".", "").replace(",", ".")) || 0;
     }
 
-    function calcularPrecoVenda(precoCusto, quantidade) {
-      const precoPorUnidade = precoCusto / (quantidade || 1);
+    // ATENÇÃO: precoCusto JÁ É o custo unitário final (ex: R$ 5,50 por caixinha).
+    // A quantidade NÃO deve dividir o custo — ela serve apenas como registro.
+    // NUNCA divida precoCusto pela quantidade aqui.
+    function calcularPrecoVenda(precoCusto) {
       let precoVenda;
 
-      if (precoPorUnidade <= 5) {
-        precoVenda = precoPorUnidade * 1.75;
+      if (precoCusto <= 5) {
+        precoVenda = precoCusto * 1.75;
       } else {
-        precoVenda = precoPorUnidade * 1.5;
+        precoVenda = precoCusto * 1.5;
       }
 
       precoVenda = Math.ceil(precoVenda * 4) / 4; // múltiplo de 0,25
@@ -309,14 +311,15 @@
         return;
       }
 
+      // precoCusto JÁ É o custo unitário final — NÃO dividir pela quantidade
       const precoCusto = parsePreco(precoCustoFormatado);
-      const precoVenda = calcularPrecoVenda(precoCusto, quantidade);
+      const precoVenda = calcularPrecoVenda(precoCusto); // sem quantidade
 
       const item = document.createElement("li");
       item.className = "product-item";
       item.innerHTML = `
         <strong>${nomeProduto}</strong>
-        <span>Preço de Custo: <strong>R$ ${precoCusto.toFixed(2).replace(".", ",")}</strong></span>
+        <span>Custo Unitário: <strong>R$ ${precoCusto.toFixed(2).replace(".", ",")}</strong></span>
         <span>Quantidade: ${quantidade}</span>
         <span>Preço de Venda: <span class="price-green">R$ ${precoVenda.toFixed(2).replace(".", ",")}</span></span>
         <button class="delete-btn" onclick="this.parentElement.remove()">Remover</button>
@@ -568,8 +571,9 @@
     function limparNomeProduto(str) {
       if (!str) return "";
       return str
-        .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/g, "")   // remove preços
-        .replace(/[|<>{}\[\]\\]/g, " ")               // artefatos OCR
+        .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/g, "")          // remove preços
+        .replace(/[|<>{}\[\]\\]/g, " ")                     // artefatos OCR
+        .replace(/^[\s\u2014\u2013\u2012\u002D\u2015\-]+/, "") // remove traços/hífens iniciais (ex: "— LEITE", "—— BISCRECH")
         .replace(/\s{2,}/g, " ")
         .trim();
     }
@@ -603,38 +607,52 @@
       }
 
       // --- Extrai CÓDIGO e QUANTIDADE dos números iniciais ---
-      // Padrão: dois números no início → primeiro = CÓDIGO, segundo = QTD
-      // Padrão: um número no início → se >= 100 é CÓDIGO (qtd=1), se < 100 é QTD
+      //
+      // Estratégia: Se dois números aparecem antes do texto descritivo:
+      //   - O PRIMEIRO sempre é o CÓDIGO (pode ser 55, 307, 1376...)
+      //   - O SEGUNDO sempre é a QUANTIDADE comprada (ex: 3, 6, 12...)
+      //   - A descrição começa apenas quando o próximo token começa com LETRA
+      //
+      // Heurística de desambiguação:
+      //   - "55 3 IBITURUNA..." → n1=55(cód), n2=3(qtd), texto="IBITURUNA..."
+      //   - "774 3 LEITE..."   → n1=774(cód), n2=3(qtd), texto="LEITE..."
+      //   - "3 LEITE..."       → n1=3(qtd), texto="LEITE..." (só 1 número antes do texto)
       let qtdComprada = 1;
       let descricaoRaw = trecho;
 
-      const matchDoisNums = trecho.match(/^\s*(\d{1,6})\s+(\d{1,4})\s+(.+)$/);
+      // Tenta: dois números seguidos de texto iniciado por letra
+      const matchDoisNums = trecho.match(/^\s*(\d{1,6})\s+(\d{1,4})\s+([A-ZÀ-Ú].*)$/i);
       if (matchDoisNums) {
-        // Heurística: num1 é o código (geralmente maior ou igual a num2)
-        const n1 = parseInt(matchDoisNums[1], 10);
-        const n2 = parseInt(matchDoisNums[2], 10);
-        // Se n1 >> n2 OU n1 >= 100 → n1=código, n2=qtd
-        // Se n1 ~ n2 e ambos pequenos → n1=qtd, ignorar num2 (raro mas possível)
-        if (n1 >= 100 || n1 > n2 * 3) {
-          qtdComprada = n2;
-          descricaoRaw = matchDoisNums[3];
-        } else {
-          // Ambos pequenos: trata n1 como qtd e n2 como início do nome
-          qtdComprada = n1;
-          descricaoRaw = matchDoisNums[2] + " " + matchDoisNums[3];
-        }
+        // Dois números seguidos de texto com letra → o 1º é código, o 2º é quantidade
+        qtdComprada = parseInt(matchDoisNums[2], 10);
+        descricaoRaw = matchDoisNums[3];
       } else {
-        const matchUmNum = trecho.match(/^\s*(\d{1,6})\s+(.+)$/);
+        // Tenta: um número seguido de texto iniciado por letra
+        const matchUmNum = trecho.match(/^\s*(\d{1,6})\s+([A-ZÀ-Ú].*)$/i);
         if (matchUmNum) {
+          // Um único número antes do texto → pode ser código (qtd=1) ou qtd real
+          // Heurística: se >= 100, é código; se < 100, é a quantidade
           const n = parseInt(matchUmNum[1], 10);
           if (n >= 100) {
-            // Provavelmente código de produto → qtd = 1
             qtdComprada = 1;
             descricaoRaw = matchUmNum[2];
           } else {
-            // Provavelmente a própria quantidade
             qtdComprada = n;
             descricaoRaw = matchUmNum[2];
+          }
+        } else {
+          // Tenta: dois números quaisquer (fallback para número inicial sem letra depois)
+          const matchFallback = trecho.match(/^\s*(\d{1,6})\s+(\d{1,4})\s+(.+)$/);
+          if (matchFallback) {
+            const n1 = parseInt(matchFallback[1], 10);
+            const n2 = parseInt(matchFallback[2], 10);
+            if (n1 >= 100 || n1 > n2 * 3) {
+              qtdComprada = n2;
+              descricaoRaw = matchFallback[3];
+            } else {
+              qtdComprada = n1;
+              descricaoRaw = matchFallback[2] + " " + matchFallback[3];
+            }
           }
         }
       }
@@ -772,11 +790,14 @@
     function exibirListaItensOCR(itens) {
       const container = document.getElementById("ocrItemsContainer");
       container.style.display = "block";
-      
-      let html = `<div class="ocr-items-title">📋 Clique em um item para preencher:</div>`;
+
+      let html = `<div class="ocr-items-title">📋 1 clique = preencher campos &nbsp;|&nbsp; 2 cliques = adicionar direto ✅</div>`;
       itens.forEach((item, index) => {
         html += `
-          <div class="ocr-item-chip" onclick="selecionarItemOCR(${index})">
+          <div class="ocr-item-chip"
+               onclick="selecionarItemOCR(${index})"
+               ondblclick="selecionarEAdicionarItemOCR(${index})"
+               title="Clique: preencher | Duplo clique: adicionar direto">
             <span><strong>${item.nome}</strong> (Qtd: ${item.quantidade})</span>
             <span class="price-green">R$ ${item.preco.toFixed(2).replace(".", ",")}</span>
           </div>
@@ -785,9 +806,19 @@
       container.innerHTML = html;
     }
 
+    // 1 clique: só preenche os campos para conferência
     function selecionarItemOCR(index) {
       if (itensDetectadosOCR[index]) {
         preencherFormulario(itensDetectadosOCR[index]);
+      }
+    }
+
+    // Duplo clique: preenche os campos E adiciona direto na lista
+    function selecionarEAdicionarItemOCR(index) {
+      if (itensDetectadosOCR[index]) {
+        preencherFormulario(itensDetectadosOCR[index]);
+        // Pequeno delay para garantir que os inputs foram preenchidos antes de adicionar
+        setTimeout(() => adicionarProduto(), 50);
       }
     }
 
