@@ -542,24 +542,28 @@
     }
 
     function parseLinhaOrcamento(line) {
-      // Procura todos os valores monetários da linha (ex: 66,00 198,00)
+      // Procura todos os valores monetários da linha (ex: 66,00 198,00 ou 66,00)
       const priceMatches = [...line.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
       if (priceMatches.length === 0) return null;
 
-      const vlUnitario = parseNumeroPtEn(priceMatches[0][1]);
-      const vlTotal = priceMatches.length > 1 ? parseNumeroPtEn(priceMatches[priceMatches.length - 1][1]) : vlUnitario;
+      const vlUnitarioNota = parseNumeroPtEn(priceMatches[0][1]);
+      const vlTotalNota = priceMatches.length > 1 ? parseNumeroPtEn(priceMatches[priceMatches.length - 1][1]) : vlUnitarioNota;
 
-      if (vlUnitario <= 0) return null;
+      if (vlUnitarioNota <= 0) return null;
 
       // Isola o trecho inicial antes dos preços
       let trechoInicial = line.replace(/(?:R\$\s*)?\d+[\.,]\d{2}.*$/i, "").trim();
       
-      // Remove unidade no final do trecho (ex: CX, PCT, UN, UD, KG, FD, LT)
-      trechoInicial = trechoInicial.replace(/\s+(?:CX|PCT|UN|UD|KG|FD|LT|CAIXA|PACOTE|UNID|LATA|LOTE|CX\.|PCT\.|UN\.)\s*$/i, "").trim();
+      // Extrai a coluna de Unidade da Nota (ex: CX, FD, BL, PC, PT, PCT, UN, UD, KG, M2)
+      let unidadeNota = "";
+      const matchUnd = trechoInicial.match(/\s+(CX|FD|BL|PC|PT|PCT|UN|UD|KG|M2|CAIXA|PACOTE|UNID|LATA|LOTE|CX\.|FD\.|BL\.|PC\.|PT\.|PCT\.|UN\.)\s*$/i);
+      if (matchUnd) {
+        unidadeNota = matchUnd[1].toUpperCase().replace(".", "");
+        trechoInicial = trechoInicial.replace(/\s+(?:CX|FD|BL|PC|PT|PCT|UN|UD|KG|M2|CAIXA|PACOTE|UNID|LATA|LOTE|CX\.|FD\.|BL\.|PC\.|PT\.|PCT\.|UN\.)\s*$/i, "").trim();
+      }
 
       // Analisa os números no início:
-      // Ex: "774 3 LEITE INTEGRAL 1 LT C/12" -> num1 = 774 (CÓDIGO), num2 = 3 (QTD COMPRADA)
-      // Ex: "3 LEITE INTEGRAL 1 LT C/12"     -> num1 = 3 (QTD COMPRADA)
+      // Ex: "774 3 LEITE INTEGRAL 1 LT C/12 UD" -> num1 = 774 (CÓDIGO), num2 = 3 (QTD COMPRADA)
       const matchNumIniciais = trechoInicial.match(/^\s*(\d{1,6})(?:\s+(\d{1,6}))?\s+(.+)$/);
 
       let codigo = "";
@@ -592,33 +596,40 @@
       const nomeLimpo = limparNomeProduto(descricaoRaw);
       if (nomeLimpo.length < 2) return null;
 
-      const multiplicador = extrairMultiplicador(descricaoRaw);
-      const quantidadeTotalVenda = qtdComprada * multiplicador;
+      // Identifica se é Embalagem Fechada (CX, FD, BL, PC, PT, PCT) e o multiplicador por embalagem (ex: C/12 UD, C/15 UD, C/18, 10X120G)
+      const eEmbalagemFechada = ["CX", "FD", "BL", "PC", "PT", "PCT", "CAIXA", "PACOTE"].includes(unidadeNota);
+      const unidadesPorEmbalagem = extrairMultiplicador(descricaoRaw);
 
-      let precoCustoUnitario = vlUnitario;
-      if (multiplicador > 1) {
-        if (vlTotal > 0 && Math.abs(vlTotal - (qtdComprada * vlUnitario)) < 0.10) {
-          precoCustoUnitario = vlUnitario / multiplicador;
-        } else if (vlUnitario > 10) {
-          precoCustoUnitario = vlUnitario / multiplicador;
-        }
+      let quantidadeTotalVenda = qtdComprada;
+      let custoUnitarioVenda = vlUnitarioNota;
+
+      if ((eEmbalagemFechada || unidadesPorEmbalagem > 1) && unidadesPorEmbalagem > 1) {
+        // Regra 1: Embalagem Fechada com multiplicador
+        // Quantidade Total de Venda = Quantidade Comprada x Unidades por Embalagem
+        quantidadeTotalVenda = qtdComprada * unidadesPorEmbalagem;
+        // Custo Unitário por Item de Venda = Valor Unitário da Caixa / Unidades por Embalagem
+        custoUnitarioVenda = vlUnitarioNota / unidadesPorEmbalagem;
+      } else {
+        // Regra 2: Peça Única ou Venda por Unidade (UN, M2, etc.)
+        quantidadeTotalVenda = qtdComprada;
+        custoUnitarioVenda = vlUnitarioNota;
       }
 
       return {
         nome: nomeLimpo,
-        preco: precoCustoUnitario,
-        quantidade: quantidadeTotalVenda
+        preco: custoUnitarioVenda,       // Preenchido diretamente no formulário (ex: R$ 5,50)
+        quantidade: quantidadeTotalVenda // Preenchido diretamente no formulário (ex: 36 unidades)
       };
     }
 
     function extrairMultiplicador(str) {
       if (!str) return 1;
-      // 1. Padrão "C/12", "C/ 12", "C/15", "C/18"
-      const matchC = str.match(/\bC\s*\/\s*(\d+)\b/i);
+      // 1. Padrões como "C/12 UD", "C/12UD", "C/ 12 UD", "C/15 UD", "C/18", "C/ 18"
+      const matchC = str.match(/\bC\s*\/\s*(\d+)(?:\s*UD|\s*UN|\s*UNID)?\b/i);
       if (matchC && parseInt(matchC[1], 10) > 0) {
         return parseInt(matchC[1], 10);
       }
-      // 2. Padrão "10X120G", "12X350ML", "10 X 100G"
+      // 2. Padrões como "10X120G", "12X350ML", "10 X 100G"
       const matchX = str.match(/\b(\d+)\s*[xX]\s*\d+\s*(?:g|gr|gramas|kg|ml|l|lt)?\b/i);
       if (matchX && parseInt(matchX[1], 10) > 0) {
         return parseInt(matchX[1], 10);
