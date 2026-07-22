@@ -1,28 +1,23 @@
 # Registro de Progresso - Caixa Freitas (Calculadora v2)
 
 ## 📌 Última Atualização
-- **Data e Hora da Mudança / Conclusão**: 22/07/2026 12:54 (Horário de Brasília)
-- **Tempo Estimado Gasto**: 5 minutos
+- **Data e Hora da Mudança / Conclusão**: 22/07/2026 13:05 (Horário de Brasília)
+- **Tempo Estimado Gasto**: 10 minutos
 
 ## 📝 Arquivos Modificados
-- [`index.html`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/index.html): Adição do Tesseract.js CDN (português), botão com ícone de câmera para captura/upload de fotos, feedback de progresso do OCR, parser inteligente para tabela/linhas de nota fiscal e orçamentos, e autopreenchimento dos campos do formulário.
-- [`.gitignore`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/.gitignore): Arquivo para ignorar arquivos temporários e do sistema como `.DS_Store`.
-- [`PROGRESS.md`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/PROGRESS.md): Registro contínuo de atualizações do projeto Caixa Freitas.
+- [`index.html`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/index.html): Implementado lazy-loading do Tesseract.js via evento de clique no botão "📷 Ler Nota / Orçamento", adicionados timeouts de proteção (15s para o script e 25s para o OCR), e interface de tratamento de erro com botão de 'Tentar Novamente'.
+- [`PROGRESS.md`](file:///Users/thiagoviniciusdefreitas/Documents/calculadora-v2/PROGRESS.md): Atualizado o registro de status e alterações do projeto.
 
 ## 🛠️ Problemas Corrigidos
-- Implementação inicial da funcionalidade OCR para leitura de cupons/notas/orçamentos sem necessidade de digitação manual.
-- Criação do `.gitignore` para evitar envio de arquivos do sistema (`.DS_Store`) ao GitHub.
+- Correção do travamento do Tesseract.js ("Inicializando leitor de imagem...") através de lazy-loading dinâmico e tratamento de erro de timeout no download dos arquivos do modelo `por`.
 
 ## 📊 Status Atual do Sistema
-- **Status**: Operacional e Pronto para Uso
+- **Status**: Operacional e Otimizado
 - **Recursos Ativos**:
-  - Integração Tesseract.js (reconhecimento local via navegador em idioma português `por`).
-  - Botão `📷 Ler Nota / Orçamento` posicionado logo acima do campo *Nome do produto*.
-  - Seletor nativo de mídia/câmera do dispositivo (`capture="environment"`).
-  - Algoritmo de parsing de colunas da nota fiscal (extração de Quantidade, Nome do Produto e Valor Unitário/Preço).
-  - Preenchimento automático dos campos `Nome do produto`, `Preço de custo (R$)` e `Quantidade`.
-  - Seletor interativo de itens caso a nota contenha múltiplos produtos.
+  - Carregamento sob demanda (lazy loading) do Tesseract.js ao acionar a câmera/OCR.
+  - Timeout de segurança e mensagens intuitivas em caso de instabilidade na internet.
+  - Botão de 'Tentar Novamente' integrado à interface de status do OCR.
+  - Parsing inteligente de notas fiscais/orçamentos com autopreenchimento de Produto, Preço e Quantidade.
 
 ## ⚠️ Problemas Encontrados (se houver)
-- Nenhum.
-
+- O carregamento síncrono/inicial do Tesseract.js no load da página podia travar em conexões instáveis. Corrigido com sucesso utilizando `carregarTesseractJS()` assíncrono e `Promise.race()` com timeouts defensivos.

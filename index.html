@@ -45,141 +45,6 @@
       transform: scale(0.95);
     }
 
-    .product-list {
-      list-style-type: none;
-      padding: 0;
-    }
-
-    .product-item {
-      display: flex;
-      flex-direction: column;
-      margin-bottom: 15px;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      background-color: #e6ffe6;
-    }
-
-    .delete-btn {
-      background-color: #ff4d4d;
-      padding: 3px 8px;
-      font-size: 12px;
-      align-self: flex-end;
-    }
-
-    .save-btn {
-      background-color: #28a745;
-    }
-
-    .clear-btn {
-      background-color: #dc3545;
-    }
-
-    .add-product-btn {
-      background-color: #28a745;
-    }
-
-    .price-green {
-      color: green;
-      font-weight: bold;
-    }
-
-    .logo-container {
-      text-align: center;
-      margin-bottom: 20px;
-      background-color: #581d22;
-      padding: 15px;
-      border-radius: 8px;
-    }
-
-    .logo-container img {
-      max-width: 60%;
-      height: auto;
-      border: 2px solid #ddd;
-      border-radius: 5px;
-      margin: 0 auto;
-    }
-
-    .logo-container h2,
-    .logo-container p {
-      color: white;
-      margin: 5px 0;
-    }
-
-    .controls-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      margin-top: 20px;
-    }
-
-    .controls-container button {
-      padding: 5px 10px;
-      font-size: 0.9em;
-    }
-
-    @media (min-width: 768px) {
-      body {
-        flex-direction: row;
-      }
-
-      .container {
-        border-right: 1px solid #ddd;
-        border-bottom: none;
-      }
-
-      .sidebar {
-        border-left: 1px solid #ddd;
-      }
-
-      .logo-container img {
-        max-width: 40%;
-      }
-    }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      display: flex;
-      height: 100vh;
-      flex-direction: column;
-    }
-
-    .container {
-      flex: 1;
-      padding: 20px;
-      box-sizing: border-box;
-      border-bottom: 1px solid #ddd;
-    }
-
-    .sidebar {
-      flex: 1;
-      padding: 20px;
-      box-sizing: border-box;
-    }
-
-    input, button {
-      margin: 10px 0;
-      padding: 8px;
-      width: 100%;
-      box-sizing: border-box;
-      transition: transform 0.1s ease-in-out;
-    }
-
-    button {
-      cursor: pointer;
-      border: none;
-      color: white;
-      font-size: 1em;
-    }
-
-    button:active {
-      transform: scale(0.95);
-    }
-
     .camera-btn {
       background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
       color: white;
@@ -362,7 +227,7 @@
     </div>
 
     <!-- Botão de Câmera e OCR -->
-    <button type="button" class="camera-btn" onclick="document.getElementById('cameraInput').click()">📷 Ler Nota / Orçamento</button>
+    <button type="button" class="camera-btn" onclick="abrirLeitorOCR()">📷 Ler Nota / Orçamento</button>
     <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display: none;" onchange="processarImagemOCR(event)" />
     
     <div id="ocrStatus" class="ocr-status" style="display: none;"></div>
@@ -461,8 +326,37 @@
       }
     }
 
-    // --- Lógica do OCR com Tesseract.js ---
+    // --- Lazy Loading do Tesseract.js e Lógica do OCR ---
+    let scriptTesseractPromise = null;
     let itensDetectadosOCR = [];
+
+    function carregarTesseractJS() {
+      if (window.Tesseract) {
+        return Promise.resolve();
+      }
+      if (scriptTesseractPromise) {
+        return scriptTesseractPromise;
+      }
+      scriptTesseractPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => {
+          scriptTesseractPromise = null;
+          reject(new Error("Falha ao carregar biblioteca Tesseract.js via CDN"));
+        };
+        document.head.appendChild(script);
+      });
+      return scriptTesseractPromise;
+    }
+
+    function abrirLeitorOCR() {
+      // Inicia o pré-carregamento do script em background ao clicar no botão
+      carregarTesseractJS().catch(err => console.warn("Carregando Tesseract...", err));
+      // Abre a câmera ou galeria do dispositivo
+      document.getElementById("cameraInput").click();
+    }
 
     async function processarImagemOCR(event) {
       const fileInput = event.target;
@@ -476,52 +370,78 @@
       itemsDiv.innerHTML = "";
       statusDiv.style.display = "block";
       statusDiv.innerHTML = `
-        <div id="ocrStatusText">⌛ Inicializando leitor de imagem (Tesseract.js em português)...</div>
+        <div id="ocrStatusText">⌛ Carregando leitor de imagem (Tesseract.js)...</div>
         <div class="ocr-progress-bar-bg"><div id="ocrProgressBar" class="ocr-progress-bar"></div></div>
       `;
 
+      let worker = null;
+
       try {
-        const worker = await Tesseract.createWorker('por');
-        
-        const ret = await worker.recognize(file, {}, {
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              const pct = Math.round((m.progress || 0) * 100);
-              const textElem = document.getElementById("ocrStatusText");
-              const barElem = document.getElementById("ocrProgressBar");
-              if (textElem) textElem.innerText = `🔍 Reconhecendo texto... (${pct}%)`;
-              if (barElem) barElem.style.width = `${pct}%`;
-            } else if (m.status) {
-              const textElem = document.getElementById("ocrStatusText");
-              if (textElem) textElem.innerText = `⚙️ ${m.status}...`;
+        // 1. Carrega dinamicamente a biblioteca se ainda não estiver carregada (timeout 15s)
+        const timeoutScript = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("O download do script Tesseract.js demorou demais (timeout 15s).")), 15000)
+        );
+        await Promise.race([carregarTesseractJS(), timeoutScript]);
+
+        const statusElem = document.getElementById("ocrStatusText");
+        if (statusElem) statusElem.innerText = "⌛ Baixando modelo de linguagem em português (por)...";
+
+        // 2. Executa a criação do worker e o OCR com timeout limite de 25 segundos
+        const promiseOCR = (async () => {
+          worker = await Tesseract.createWorker('por', 1, {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                const pct = Math.round((m.progress || 0) * 100);
+                const textElem = document.getElementById("ocrStatusText");
+                const barElem = document.getElementById("ocrProgressBar");
+                if (textElem) textElem.innerText = `🔍 Reconhecendo texto... (${pct}%)`;
+                if (barElem) barElem.style.width = `${pct}%`;
+              } else if (m.status) {
+                const textElem = document.getElementById("ocrStatusText");
+                if (textElem) textElem.innerText = `⚙️ ${m.status}...`;
+              }
             }
-          }
-        });
+          });
+          const res = await worker.recognize(file);
+          return res;
+        })();
 
-        await worker.terminate();
+        const timeoutOCR = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Tempo limite excedido ao carregar modelo ou processar imagem (timeout 25s).")), 25000)
+        );
 
-        const textoReconhecido = ret.data.text || "";
-        console.log("Texto OCR:", textoReconhecido);
+        const ret = await Promise.race([promiseOCR, timeoutOCR]);
+
+        const textoReconhecido = ret.data ? ret.data.text || "" : "";
+        console.log("Texto OCR reconhecido:", textoReconhecido);
 
         itensDetectadosOCR = parseOrcamentoTexto(textoReconhecido);
 
         if (itensDetectadosOCR.length > 0) {
           statusDiv.innerHTML = `✅ <strong>${itensDetectadosOCR.length} item(ns) encontrado(s) na nota!</strong>`;
-          
-          // Preenche automaticamente com o primeiro item encontrado
           preencherFormulario(itensDetectadosOCR[0]);
 
-          // Se houver múltiplos itens, apresenta lista para o usuário selecionar outros
           if (itensDetectadosOCR.length > 1) {
             exibirListaItensOCR(itensDetectadosOCR);
           }
         } else {
-          statusDiv.innerHTML = `⚠️ Não foi possível identificar a estrutura de produtos na imagem. Tente uma foto com melhor iluminação e alinhamento.`;
+          statusDiv.innerHTML = `⚠️ Não foi possível identificar produtos na imagem. Tente com uma foto mais legível ou com melhor iluminação.`;
         }
       } catch (err) {
         console.error("Erro no processamento OCR:", err);
-        statusDiv.innerHTML = `❌ Erro ao processar a imagem com OCR. Verifique sua conexão ou tente outra imagem.`;
+        statusDiv.innerHTML = `
+          <div style="color: #dc3545; font-weight: bold;">❌ Não foi possível carregar o leitor OCR.</div>
+          <div style="font-size: 0.85em; margin-top: 4px; color: #555;">
+            O download dos dados de idioma ('por') demorou demais ou houve falha na conexão de rede.
+          </div>
+          <button type="button" onclick="abrirLeitorOCR()" style="margin-top: 8px; padding: 6px 12px; background-color: #2563eb; color: white; border-radius: 4px; cursor: pointer;">🔄 Tentar Novamente</button>
+        `;
       } finally {
+        if (worker) {
+          try {
+            await worker.terminate();
+          } catch (e) {}
+        }
         fileInput.value = ""; // reseta o input file
       }
     }
@@ -530,7 +450,6 @@
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
       const resultados = [];
 
-      // Palavras-chave a ignorar (cabeçalhos/rodapés comuns de cupons e orçamentos)
       const ignorar = [
         "CNPJ", "CPF", "ENDERECO", "TELEFONE", "DATA", "HORA", "TOTAL", "SUBTOTAL", 
         "EMISSAO", "INSCRICAO", "CHAVE", "OBRIGADO", "VOLTE SEMPRE", "NOTA FISCAL", 
@@ -541,38 +460,28 @@
       for (let line of lines) {
         const lineUpper = line.toUpperCase();
         
-        // Pulando cabeçalhos/rodapés irrelevantes
         if (ignorar.some(term => lineUpper.includes(term) && !lineUpper.match(/\d+[\.,]\d{2}/))) {
           continue;
         }
 
-        // Tentar extrair preço (padrão R$ 0,00 ou 0,00 ou 0.00)
-        // Pega valores monetários da linha
         const priceMatches = [...line.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
         if (priceMatches.length === 0) continue;
 
-        // Pega o valor (prefere o último ou valor unitário se houver múltiplos)
         let precoStr = priceMatches[0][1];
-        if (priceMatches.length > 1) {
-          // Se tiver 2+ valores (ex: Vl.Unit e Vl.Total), pega o unitário (normalmente o primeiro) ou menor
-          precoStr = priceMatches[0][1];
-        }
 
         let preco = parseFloat(precoStr.replace(".", "").replace(",", "."));
         if (isNaN(preco) || preco <= 0) continue;
 
-        // Tentar extrair quantidade (ex: 2x, 2UN, 2 UN, 2.00, ou número solto no começo)
         let quantidade = 1;
         const qtdMatch = line.match(/(?:^|\s)(\d+)(?:\s*(?:x|un|kg|g|pct|cx|unid))?(?=\s|$)/i);
         if (qtdMatch && parseInt(qtdMatch[1], 10) > 0 && parseInt(qtdMatch[1], 10) < 1000) {
           quantidade = parseInt(qtdMatch[1], 10);
         }
 
-        // Tentar extrair nome do produto limpando o preço, quantidade e palavras-chave
         let nome = line
-          .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/gi, "") // Remove preços
-          .replace(/(?:^|\s)\d+\s*(?:x|un|kg|g|pct|cx|unid)?(?=\s|$)/gi, "") // Remove quantidade
-          .replace(/[^\w\sÀ-ú]/gi, " ") // Remove caracteres especiais
+          .replace(/(?:R\$\s*)?\d+[\.,]\d{2}/gi, "")
+          .replace(/(?:^|\s)\d+\s*(?:x|un|kg|g|pct|cx|unid)?(?=\s|$)/gi, "")
+          .replace(/[^\w\sÀ-ú]/gi, " ")
           .replace(/\s+/g, " ")
           .trim();
 
@@ -585,12 +494,10 @@
         }
       }
 
-      // Fallback: Se não encontrou linhas tabulares estruturadas, tenta busca genérica de produto e preço no texto
       if (resultados.length === 0) {
         const prices = [...text.matchAll(/(?:R\$\s*)?(\d+[\.,]\d{2})/gi)];
         if (prices.length > 0) {
           const primeiroPreco = parseFloat(prices[0][1].replace(".", "").replace(",", "."));
-          // Procura maior linha de texto que não seja preço para usar como nome
           const candidateLines = lines.filter(l => !l.match(/^(?:R\$\s*)?\d+[\.,]\d{2}$/));
           const nomeFallback = candidateLines.length > 0 ? candidateLines[0].replace(/[^\w\sÀ-ú]/gi, " ").trim() : "Produto Nota";
           
